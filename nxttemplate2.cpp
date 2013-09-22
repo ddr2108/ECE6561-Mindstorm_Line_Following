@@ -1,7 +1,10 @@
-/* nxtdemo.cpp */ 
-// modified from nxtgt.c by Paul Robinette probinette3@gatech.edu
+/* nxttemplate.cpp */ 
+// This is a template file to be used with the Lego NXT Robot tutorials.  
+// Before usage, be sure to rename "nxttemplate.cpp", "nxttemplate.oil",
+// as well as all instances of "nxttemplate" within the "Makefile" file 
+// with the name of the new project.
 
-// ECRobot++ API
+// ECRobot++ API (http://lejos-osek.sourceforge.net/html/index.html)
 #include "LightSensor.h"
 #include "SonarSensor.h"
 #include "SoundSensor.h"
@@ -10,18 +13,28 @@
 #include "Lcd.h"
 #include "Motor.h"
 #include "Nxt.h"
+
 using namespace ecrobot;
 
+
+//Flags for when multiple sensors
+#define LEFT  0
+#define RIGHT 1
+
+// Encoder value for the robot to be facing straight forward
 #define CENTER 60
+
+// Value for each motor to move full speed ahead
 #define FULLSPEED -100
 
-#define FWD_MODE  0
-#define SCAN_MODE 1
-#define TURN_MODE 2
-#define REV_MODE  3
+// Various operational states
+#define START  0
+#define FIND_LINE 1
+#define FOLLOW 2
+#define STOP  3
 
-#define MAIN_WAIT 200
-
+// Time to wait (in milliseconds) between control updates
+#define MAIN_WAIT 1000
 
 extern "C" 
 {
@@ -46,7 +59,15 @@ Clock clock;
 // Initialize LCD
 Lcd lcd;		
 
-int maxCount = 100;
+void dispatcher();
+int start();
+int findLine();
+int follow();
+int stop();
+int getLight(int light);
+int getSonar();
+int getTouch();
+void setMotor(int motor, int PWM);
 
 /* nxtOSEK hook to be invoked from an ISR in category 2 */
 void user_1ms_isr_type2(void)
@@ -54,129 +75,32 @@ void user_1ms_isr_type2(void)
 	SleeperMonitor(); // needed for I2C device and Clock classes
 }
 
-/** 
-   This function takes in a desired heading (count) and does bang-bang type
-   steering control until magnitude of heading error is less than or equal to 1
-**/
-void turnTo(int count)
-{
-	// Confine "count" to be in interval [0,maxCount]
-	if(count > maxCount)
-	{
-		count = maxCount;
-	}
-	if(count < 0)
-	{
-		count = 0;
-	}
-
-	int error = count - steering.getCount();
-
-	// Continue steering until |error| <= 1
-	while(error > 1 || error < -1)
-	{
-		// Steer at PWM "75" with sign same as error
-		if(error < 0)
-		{
-			steering.setPWM(-75);
-		}
-		else
-		{
-			steering.setPWM(75);
-		}
-		
-		// Recalculate the steering error
-		error = count - steering.getCount();
-		
-		// Wait some time before re-evaluating
-		clock.wait(10);
-	}
-	
-	// Done turning, no more steering
-	steering.setPWM(0);
-}
-
-/**
-   Finds and steers the robot to the angle (count) with the largest sonar reading. Returns the 
-   associated sonar reading to the caller.
-**/
-int findBestAngle()
-{
-	// First, steer to face angle 0
-	turnTo(0);
-	int bestDist = sonar.getDistance();
-	int bestCount = 0;
-	
-	// Consider angles (counts) 0,25,50,75,100
-	for(int i = 0; i < maxCount; i+=25)
-	{
-		// Get sonar and touch sensor readings at that angle
-		int dist = sonar.getDistance();
-		int bump = touch.isPressed();
-		
-		// Debugging LCD output
-		lcd.clear();
-		lcd.putf("sn",   "NXT Sensors");
-		lcd.putf("sddn", "1/2: ", leftLight.getBrightness(),0, dist,5);
-		lcd.putf("sddn",  "3/4: ", rightLight.getBrightness(),0, bump,5);
-
-		lcd.putf("sdn", "Steering: ", steering.getCount(),0);
-		lcd.putf("sn", "SCAN");
-		lcd.disp();
-
-		// Save the angle (count) with the largest distance from sonar
-		turnTo(i);
-		if(dist > bestDist)
-		{
-			bestCount = i;
-			bestDist = sonar.getDistance();
-		}
-		
-		// Wait between testing out different angles
-		clock.wait(500);
-	}
-	
-	// Turn to the angle with the largest sonar reading and return that distance
-	turnTo(bestCount);
-	return bestDist;
-}
-
-/**
-   Backs the robot up for 1000*time time units, stops early if touch sensor pressed
-**/
-void backup(float time)
-{
-	// Turn steering to face center (straight forward)
-	turnTo(CENTER);
-	
-	// Set both motors to full speed backwards
-	leftMotor.setPWM(-FULLSPEED);
-	rightMotor.setPWM(-FULLSPEED);
-	
-	// Back up for 1000*time time units, stop early if touch sensor pressed
-	for(int i = 0; i < time*10; i++)
-	{
-		if(touch.isPressed() == 1)
-		{
-			leftMotor.setPWM(0);
-			rightMotor.setPWM(0);
-			break;
-		}
-		clock.wait(100);
-	}
-	
-	// Stop both motors when done backing up
-	leftMotor.setPWM(0);
-	rightMotor.setPWM(0);
-}
+// LOCATION A: INITIALIZATION CODE
 
 /**
    Main Loop
 **/
-TASK(TaskMain)
+/*TASK(TaskMain)
+{
+	// LOCATION B: LOOP INITIALIZATION CODE
+	
+	// Endless loop
+	while(1){	
+		// Call Dispatcher
+		lcd.clear();
+		lcd.putf("sn",   "NXT Sensors");
+		lcd.putf("sn", "SCAN");
+		lcd.disp();
+		//dispatcher();
+		// Wait some time between iterations
+		clock.wait(MAIN_WAIT);
+
+	}
+}*/
+	TASK(TaskMain)
 {
 	// Start in Scan Mode
-	int mode = SCAN_MODE;
+	/*int mode = SCAN_MODE;
 
 	// Steering count initialization
 	// First, turn all the way to the left
@@ -197,7 +121,7 @@ TASK(TaskMain)
 	// Turn to face the center
 	turnTo(CENTER);
 	int turnCount = 0;
-	int revCount = 0;
+	int revCount = 0;*/
 
 	// Endless loop
 	while(1)
@@ -212,7 +136,7 @@ TASK(TaskMain)
 
 		lcd.putf("sdn", "Steering: ", steering.getCount(),0);
 
-		if(mode == SCAN_MODE) // SCAN MODE
+		/*if(mode == SCAN_MODE) // SCAN MODE
 		{
 			// Dont move and find the best angle
 			leftMotor.setPWM(0);
@@ -313,7 +237,7 @@ TASK(TaskMain)
 				lcd.putf("sn","FWD: FULL");
 			}
 
-		}
+		}*/
 		
 		// Update LCD display
 		lcd.disp();  
@@ -321,6 +245,167 @@ TASK(TaskMain)
 		// Wait some time between iterations
 		clock.wait(MAIN_WAIT);
 	}
-} // End Task
+}
+
+/*Function: dispatcher()
+* In control of state machine - Dispatches calls 
+* to other functions based on current state
+*/
+void dispatcher(){
+	//Holds current state
+	int state = START;
+
+	while(1){	
+		//Switch between states
+		switch(state){
+			//Initial state
+			case START:
+				state = start();
+				break;
+			//Locate the line
+			case FIND_LINE:
+				state = findLine();
+				break;
+			//Follow the line
+			case FOLLOW:
+				state = follow();
+				break;
+			//Stop when come to points
+			case STOP:
+				state = stop();
+				break;
+		}
+
+		// Wait some time between iterations
+		clock.wait(MAIN_WAIT);
+	}
+}
+
+////////////////////States/////////////////////////////////////
+
+/*Function: start()
+* Intial state of state machine
+*
+* Returns:
+*	int - next state
+*/
+int start(){
+	int leftLightIn, rightLightIn;
+
+	//Get light sensor values
+	leftLightIn = getLight(LEFT);
+	rightLightIn = getLight(RIGHT);
+
+	if (1){
+		return FIND_LINE;
+	}
+
+}
+
+/*Function: findLine()
+* Function that finds the line initially
+*
+* Returns:
+*	int - next state
+*/
+int findLine(){
+	int leftLightIn, rightLightIn;
+	do{
+		//Go forward till find the line
+		if (1){
+			setMotor(LEFT, 50);
+			setMotor(RIGHT, 50);
+		}
+
+		//Get light sensor values
+		leftLightIn = getLight(LEFT);
+		rightLightIn = getLight(RIGHT);
+	}while (rightLightIn>300);
+
+	//Return and go to next state
+	return STOP;
+}
+
+/*Function: follow()
+* Function for following the line
+*
+* Parameters:
+*	
+*/
+int follow(){
+	return STOP;
+}
+
+/*Function: stop()
+*Function that stops and does action at points
+*
+* Returns:
+*	int - next state
+*/
+int stop(){
+	//Infinite loop while touch not pressed
+	while(getTouch()==0){
+		//Spin around in circles
+		setMotor(LEFT, 0);
+		setMotor(RIGHT, 50);
+	}
+
+	//When pressed, return to following line
+	return FOLLOW;
+}
+
+////////////////Interacting with IO///////////////////////////////
+/*Function: getLight()
+* Get light from sensor
+*
+* Parameters:
+*	int light - LEFT or RIGHT light sensor
+*
+* Returns:
+*	int - value returned by light sensor
+*/
+int getLight(int light){
+	if (light==LEFT){
+		return leftLight.getBrightness();
+	}else if (light==RIGHT){
+		return rightLight.getBrightness();
+	}
+}
+
+/*Function: getSonar()
+* Gets distance according to sonar 
+*
+* Returns: 
+*	int - distance returned by sonar
+*/
+int getSonar(){
+	return sonar.getDistance();	
+}
+
+/*Function: getTouch()
+* Get value of touch sensor
+*
+* Returns:
+*	int - value of touch sensor
+*/
+int getTouch(){
+	return touch.isPressed();
+}
+
+/*Function: setMotor()
+* Sets PWM on motor
+*
+* Parameters:
+*	int motor - LEFT or RIGHT motor
+*	int PWN	  - PWM to be sent to motor
+*/
+void setMotor(int motor, int PWM){
+	if (motor==LEFT){
+		leftMotor.setPWM(PWM);
+	}else if (motor==RIGHT){
+		rightMotor.setPWM(PWM);
+	}
+	
+}
 
 } // End Extern C
