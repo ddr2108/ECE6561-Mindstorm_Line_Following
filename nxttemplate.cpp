@@ -172,6 +172,9 @@ int findLine(){
 *	
 */
 int follow(){
+	setMotor(LEFT, 0);
+	setMotor(RIGHT, 0);
+
 	return FOLLOW;
 }
 
