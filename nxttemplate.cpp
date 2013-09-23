@@ -1,5 +1,8 @@
-/* nxtdemo.cpp */ 
-// modified from nxtgt.c by Paul Robinette probinette3@gatech.edu
+///////////////////////////////////////////////////////////////////////
+//
+// Line following Mindstorm robot
+//
+///////////////////////////////////////////////////////////////////////
 
 // ECRobot++ API
 #include "LightSensor.h"
@@ -15,18 +18,25 @@ using namespace ecrobot;
 #define CENTER 60
 #define FULLSPEED -100
 
-// Various operational states
+// Follow State Machine
+#define LEFT_FOLLOW  0
+#define RIGHT_FOLLOW 1
+#define STRAIGHT_FOLLOW 2
+#define STOP_FOLLOW  3
+//Find Line State Machine
+#define STRAIGHT   0 
+#define LEFT_TURN  1
+#define TURNED	   2
+// High Level State Machine
 #define START  0
 #define FIND_LINE 1
 #define FOLLOW 2
 #define STOP  3
-
-#define STRAIGHT   0 
-#define LEFT_TURN  1
-#define TURNED	   2
-
 #define MAIN_WAIT 200
 
+#define WHITE 0
+#define BLACK 1
+#define GRAY  2
 //Flags for when multiple sensors
 #define LEFT  0
 #define RIGHT 1
@@ -37,6 +47,12 @@ extern "C"
 #include "kernel_id.h"
 #include "ecrobot_interface.h"
 
+//Follow state machine
+void dispatcherFollow();
+int straightFollow();
+int leftFollow();
+int rightFollow();
+int stopFollow();
 //Find line state machine
 void dispatcherFindLine();
 int straightFindLine();
@@ -47,6 +63,7 @@ int begin();
 int findLine();
 int follow();
 int stop();
+
 //IO functions
 int getLight(int light);
 int getSonar();
@@ -72,8 +89,10 @@ Lcd lcd;
 
 int maxCount = 100;
 
+///////////////////////////////////////////////////////////////////////
+////////////////Interacting with IO////////////////////////////////////
+///////////////////////////////////////////////////////////////////////
 
-////////////////Interacting with IO//////////////////////////////////
 /*Function: getLight()
 * Get light from sensor
 *
@@ -84,10 +103,22 @@ int maxCount = 100;
 *	int - value returned by light sensor
 */
 int getLight(int light){
+	int brightness = 0;
+
+	//Get data from light sesnor
 	if (light==LEFT){
-		return leftLight.getBrightness();
+		brightness = leftLight.getBrightness();
 	}else if (light==RIGHT){
-		return rightLight.getBrightness();
+		brightness = rightLight.getBrightness();
+	}
+
+	//Based on brightness, return color
+	if (brightness>450){
+		return WHITE;
+	}else if (brightness<450){
+		return BLACK;
+	}else if (brightness == 0){
+		return GRAY;
 	}
 }
 
@@ -125,11 +156,142 @@ void setMotor(int motor, int PWM){
 		rightMotor.setPWM(PWM);
 	}
 }
+
 ///////////////////////////////////////////////////////////////////////	
 
-////////////////////STATE MACHINES/////////////////////////////////////
+///////////////////////////////////////////////////////////////////////
+////////////////////STATE MACHINES//////////////////////////////////////
+///////////////////////////////////////////////////////////////////////
+
+////////////////////FOLLOW STATE MACHINE////////////////////////////
+
+/*Function: straightFollow()
+* Go straight for following
+*
+* Returns:
+*	int - next state
+*/
+int straightFollow(){
+	int leftLightIn, rightLightIn;
+	
+	do{
+		//Follow
+		setMotor(LEFT, 20);
+		setMotor(RIGHT, 20);
+
+		//Get light sensor values
+		leftLightIn = getLight(LEFT);
+		rightLightIn = getLight(RIGHT);
+	}while (rightLightIn!=WHITE && leftLightIn!=WHITE);
+
+	//Change direction based on the lights
+	if (leftLightIn==WHITE && rightLightIn==WHITE){
+		return STOP_FOLLOW;
+	}else if (leftLightIn==WHITE){
+		return RIGHT_FOLLOW;
+	}else if (rightLightIn==WHITE){
+		return LEFT_FOLLOW;
+	}
+
+	return STOP_FOLLOW;
+}
+
+/*Function: leftFollow()
+* Go left for following
+*
+* Returns:
+*	int - next state
+*/
+int leftFollow(){
+	int leftLightIn, rightLightIn;
+	
+	do{
+		//Follow
+		setMotor(LEFT, 0);
+		setMotor(RIGHT, 20);
+
+		//Get light sensor values
+		leftLightIn = getLight(LEFT);
+		rightLightIn = getLight(RIGHT);
+	}while (rightLightIn==WHITE && leftLightIn!=WHITE);
+
+	//Change direction based on the lights
+	if (leftLightIn==WHITE && rightLightIn==WHITE){
+		return STOP_FOLLOW;
+	}else if (leftLightIn!=WHITE && rightLightIn!=WHITE){
+		return STRAIGHT_FOLLOW;
+	}else if (leftLightIn==WHITE){
+		return RIGHT_FOLLOW;
+	}
+
+	return STOP_FOLLOW;
+}
+
+/*Function: rightFollow()
+* Go right for following
+*
+* Returns:
+*	int - next state
+*/
+int rightFollow(){
+	int leftLightIn, rightLightIn;
+	
+	do{
+		//Follow
+		setMotor(LEFT, 20);
+		setMotor(RIGHT, 0);
+
+		//Get light sensor values
+		leftLightIn = getLight(LEFT);
+		rightLightIn = getLight(RIGHT);
+	}while (rightLightIn!=WHITE && leftLightIn==WHITE);
+
+	//Change direction based on the lights
+	if (leftLightIn==WHITE && rightLightIn==WHITE){
+		return STOP_FOLLOW;
+	}else if (leftLightIn!=WHITE && rightLightIn!=WHITE){
+		return STRAIGHT_FOLLOW;
+	}else if (rightLightIn==WHITE){
+		return LEFT_FOLLOW;
+	}
+
+	return STOP_FOLLOW;
+}
+
+/*Function: dispatcherFollow()
+* In control of follow state machine - Dispatches calls 
+* to other functions based on current state
+*/
+void dispatcherFollow(){
+	int state = STRAIGHT_FOLLOW;
+	
+	while(1){	
+		//Switch between states
+		switch(state){
+			//Initial state
+			case STRAIGHT_FOLLOW:
+				state = straightFollow();
+				break;
+			//Locate the line
+			case LEFT_FOLLOW:
+				state = leftFollow();
+				break;
+				//Locate the line
+			case RIGHT_FOLLOW:
+				state = rightFollow();
+				break;
+			case STOP_FOLLOW:
+				return;
+				break;
+
+		}
+	}
+}
+
+///////////////////////////////////////////////////////////////////////
 
 ////////////////////FIND LINE STATE MACHINE////////////////////////////
+
 /*Function: straightFindLine()
 * Go straight till find line
 *
@@ -147,7 +309,7 @@ int straightFindLine(){
 		//Get light sensor values
 		leftLightIn = getLight(LEFT);
 		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn>500 || leftLightIn > 500);
+	}while (rightLightIn==WHITE || leftLightIn==WHITE);
 
 
 	//Return and go to next state
@@ -175,7 +337,7 @@ int leftTurnFindLine(){
 		// Wait some time between iterations
 		clock.wait(MAIN_WAIT);
 
-	}while (i++<15);
+	}while (i++<10);
 
 	//Return and go to next state
 	return TURNED;
@@ -187,7 +349,7 @@ int leftTurnFindLine(){
 */
 void dispatcherFindLine(){
 	int state = STRAIGHT;
-	while(state!=TURNED){	
+	while(1){	
 		//Switch between states
 		switch(state){
 			//Initial state
@@ -198,10 +360,15 @@ void dispatcherFindLine(){
 			case LEFT_TURN:
 				state = leftTurnFindLine();
 				break;
+			case TURNED:
+				return;
+				break;
 		}
 	}
 }
+
 /////////////////////////////HIGH LEVEL STATE MACHINE///////////////////////////////
+
 /*Function: begin()
 * Intial state of state machine
 *
@@ -215,12 +382,13 @@ int begin(){
 	leftLightIn = getLight(LEFT);
 	rightLightIn = getLight(RIGHT);
 
-	if (leftLightIn > 500 && rightLightIn > 500){
+	//If in white space, try to find line
+	if (leftLightIn==WHITE && rightLightIn==WHITE){
 		return FIND_LINE;
 	}
 
-	//Return and go to next state
-	return STOP;
+	//If already on line, follow
+	return FOLLOW;
 }
 
 /*Function: findLine()
@@ -234,7 +402,7 @@ int findLine(){
 	dispatcherFindLine();
 
 	//Return and go to next state
-	return STOP;
+	return FOLLOW;
 }
 
 /*Function: follow()
@@ -244,10 +412,10 @@ int findLine(){
 *	
 */
 int follow(){
-	setMotor(LEFT, 10);
-	setMotor(RIGHT, 10);
+	//Dispatcher
+	dispatcherFollow();
 
-	return FOLLOW;
+	return STOP;
 }
 
 /*Function: stop()
@@ -283,23 +451,23 @@ void dispatcherMain(){
 		switch(state){
 			//Initial state
 			case START:
-				state = begin();
 				lcd.putf("sn",   "START");
+				state = begin();
 				break;
 			//Locate the line
 			case FIND_LINE:
-				state = findLine();
 				lcd.putf("sn",   "FIND");
+				state = findLine();
 				break;
 			//Follow the line
 			case FOLLOW:
-				state = follow();
 				lcd.putf("sn",   "FOLLOW");
+				state = follow();
 				break;
 			//Stop when come to points
 			case STOP:
-				state = stop();
 				lcd.putf("sn",   "STOP");
+				state = stop();
 				break;
 		}
 		int dist = sonar.getDistance();
@@ -319,26 +487,26 @@ void dispatcherMain(){
 		clock.wait(MAIN_WAIT);
 	}
 }
+
 ///////////////////////////////////////////////////////////////////////
+
 /*Function: user_1ms_isr_type2()
 * nxtOSEK hook to be invoked from an ISR in 
 * category 2
 */
-void user_1ms_isr_type2()
-{
+void user_1ms_isr_type2(){
 	SleeperMonitor(); // needed for I2C device and Clock classes
 }
 
 /*Function: main()
 * main loop
 */
-TASK(TaskMain)
-{
+TASK(TaskMain){
 	// Endless loop
 	while(1){
 		//Call dispatcher
 		dispatcherMain();
 	}
-} // End Task
+}
 
-} // End Extern C
+}
