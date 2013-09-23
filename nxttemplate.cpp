@@ -32,6 +32,8 @@ using namespace ecrobot;
 #define FIND_LINE 1
 #define FOLLOW 2
 #define STOP  3
+#define FOLLOW_AFTER_STOP 4
+
 #define MAIN_WAIT 200
 
 #define WHITE 0
@@ -113,11 +115,11 @@ int getLight(int light){
 	}
 
 	//Based on brightness, return color
-	if (brightness>450){
+	if (brightness>520){
 		return WHITE;
 	}else if (brightness<450){
 		return BLACK;
-	}else if (brightness == 0){
+	}else{
 		return GRAY;
 	}
 }
@@ -176,8 +178,8 @@ int straightFollow(){
 	
 	do{
 		//Follow
-		setMotor(LEFT, 20);
-		setMotor(RIGHT, 20);
+		setMotor(LEFT, 40);
+		setMotor(RIGHT, 40);
 
 		//Get light sensor values
 		leftLightIn = getLight(LEFT);
@@ -185,7 +187,7 @@ int straightFollow(){
 	}while (rightLightIn!=WHITE && leftLightIn!=WHITE);
 
 	//Change direction based on the lights
-	if (leftLightIn==WHITE && rightLightIn==WHITE){
+	if (leftLightIn==GRAY && rightLightIn==GRAY){
 		return STOP_FOLLOW;
 	}else if (leftLightIn==WHITE){
 		return RIGHT_FOLLOW;
@@ -208,7 +210,7 @@ int leftFollow(){
 	do{
 		//Follow
 		setMotor(LEFT, 0);
-		setMotor(RIGHT, 20);
+		setMotor(RIGHT, 30);
 
 		//Get light sensor values
 		leftLightIn = getLight(LEFT);
@@ -216,7 +218,7 @@ int leftFollow(){
 	}while (rightLightIn==WHITE && leftLightIn!=WHITE);
 
 	//Change direction based on the lights
-	if (leftLightIn==WHITE && rightLightIn==WHITE){
+	if (leftLightIn==GRAY && rightLightIn==GRAY){
 		return STOP_FOLLOW;
 	}else if (leftLightIn!=WHITE && rightLightIn!=WHITE){
 		return STRAIGHT_FOLLOW;
@@ -238,7 +240,7 @@ int rightFollow(){
 	
 	do{
 		//Follow
-		setMotor(LEFT, 20);
+		setMotor(LEFT, 30);
 		setMotor(RIGHT, 0);
 
 		//Get light sensor values
@@ -247,7 +249,7 @@ int rightFollow(){
 	}while (rightLightIn!=WHITE && leftLightIn==WHITE);
 
 	//Change direction based on the lights
-	if (leftLightIn==WHITE && rightLightIn==WHITE){
+	if (leftLightIn==GRAY && rightLightIn==GRAY){
 		return STOP_FOLLOW;
 	}else if (leftLightIn!=WHITE && rightLightIn!=WHITE){
 		return STRAIGHT_FOLLOW;
@@ -303,8 +305,8 @@ int straightFindLine(){
 	
 	do{
 		//Go forward till find the line
-		setMotor(LEFT, 20);
-		setMotor(RIGHT, 20);
+		setMotor(LEFT, 40);
+		setMotor(RIGHT, 40);
 
 		//Get light sensor values
 		leftLightIn = getLight(LEFT);
@@ -328,7 +330,7 @@ int leftTurnFindLine(){
 	do{
 		//Go forward till find the line
 		setMotor(LEFT, 0);
-		setMotor(RIGHT, 20);
+		setMotor(RIGHT, 30);
 
 		//Get light sensor values
 		leftLightIn = getLight(LEFT);
