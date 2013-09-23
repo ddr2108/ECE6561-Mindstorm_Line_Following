@@ -39,14 +39,18 @@ using namespace ecrobot;
 #define STOP  3
 #define FOLLOW_AFTER_STOP 4
 
-#define MAIN_WAIT 200
-
+//Flags for Colors
 #define WHITE 0
 #define BLACK 1
 #define GRAY  2
+
 //Flags for when multiple sensors
 #define LEFT  0
 #define RIGHT 1
+
+//Timing parameters
+#define MAIN_WAIT 200
+#define FAS_TIMEOUT 2000
 
 extern "C" 
 {
@@ -186,8 +190,10 @@ void setMotor(int motor, int PWM){
 *	int - next state
 */
 int straightFollowAfterStop(){
-	int leftLightIn, rightLightIn;
-	
+	int leftLightIn, rightLightIn;	//Sensor Input
+	Clock time;						//Time
+
+	time.reset();	//Initialize clock 
 	do{
 		//Follow
 		setMotor(LEFT, 40);
@@ -196,8 +202,13 @@ int straightFollowAfterStop(){
 		//Get light sensor values
 		leftLightIn = getLight(LEFT);
 		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn!=WHITE && leftLightIn!=WHITE);
+	}while (rightLightIn!=WHITE && leftLightIn!=WHITE && time.now() <= FAS_TIMEOUT);
 	
+	//If timed out, just stop following
+	if (time.now() >= FAS_TIMEOUT){
+		return STOP_FOLLOW_AFTER_STOP;
+	}
+
 	//Change direction based on the lights
 	if (leftLightIn==WHITE){
 		return RIGHT_FOLLOW_AFTER_STOP;
@@ -215,8 +226,10 @@ int straightFollowAfterStop(){
 *	int - next state
 */
 int leftFollowAfterStop(){
-	int leftLightIn, rightLightIn;
-	
+	int leftLightIn, rightLightIn;	//Sensor Input
+	Clock time;						//Time
+
+	time.reset();	//Initialize clock 
 	do{
 		//Follow
 		setMotor(LEFT, 0);
@@ -225,7 +238,12 @@ int leftFollowAfterStop(){
 		//Get light sensor values
 		leftLightIn = getLight(LEFT);
 		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn==WHITE && leftLightIn!=WHITE);
+	}while (rightLightIn==WHITE && leftLightIn!=WHITE && time.now() <= FAS_TIMEOUT);
+
+	//If timed out, just stop following
+	if (time.now() >= FAS_TIMEOUT){
+		return STOP_FOLLOW_AFTER_STOP;
+	}
 
 	//Change direction based on the lights
 	if (leftLightIn!=WHITE && rightLightIn!=WHITE){
@@ -244,8 +262,10 @@ int leftFollowAfterStop(){
 *	int - next state
 */
 int rightFollowAfterStop(){
-	int leftLightIn, rightLightIn;
-	
+	int leftLightIn, rightLightIn;	//Sensor Input
+	Clock time;						//Time
+
+	time.reset();	//Initialize clock 
 	do{
 		//Follow
 		setMotor(LEFT, 30);
@@ -254,7 +274,12 @@ int rightFollowAfterStop(){
 		//Get light sensor values
 		leftLightIn = getLight(LEFT);
 		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn!=WHITE && leftLightIn==WHITE);
+	}while (rightLightIn!=WHITE && leftLightIn==WHITE && time.now() <= FAS_TIMEOUT);
+	
+	//If timed out, just stop following
+	if (time.now() >= FAS_TIMEOUT){
+		return STOP_FOLLOW_AFTER_STOP;
+	}
 
 	//Change direction based on the lights
 	if (leftLightIn!=WHITE && rightLightIn!=WHITE){
@@ -271,9 +296,13 @@ int rightFollowAfterStop(){
 * to other functions based on current state
 */
 void dispatcherFollowAfterStop(){
+	//States
 	int state = STRAIGHT_FOLLOW;
-	
-	while(1){	
+	//Clock
+	Clock time;
+
+	time.reset();	//Initialize clock 
+	while(time.now() <= FAS_TIMEOUT){	
 		//Switch between states
 		switch(state){
 			//Initial state
@@ -608,30 +637,34 @@ void dispatcherMain(){
 			//Initial state
 			case START:
 				lcd.putf("sn",   "START");
+				lcd.disp();  
 				state = begin();
 				break;
 			//Locate the line
 			case FIND_LINE:
-				lcd.putf("sn",   "FIND");
+				lcd.putf("sn",   "FIND LINE");
+				lcd.disp(); 
 				state = findLine();
 				break;
 			//Follow the line
 			case FOLLOW:
 				lcd.putf("sn",   "FOLLOW");
+				lcd.disp(); 
 				state = follow();
 				break;
 			//Stop when come to points
 			case STOP:
 				lcd.putf("sn",   "STOP");
+				lcd.disp(); 
 				state = stop();
 				break;
 			//Stop when come to points
 			case FOLLOW_AFTER_STOP:
+				lcd.putf("sn",   "FOLLOW AFTER STOP");
+				lcd.disp(); 
 				state = followAfterStop();
 				break;
 		}		
-		// Update LCD display
-		lcd.disp();  
 		
 		// Wait some time between iterations
 		clock.wait(MAIN_WAIT);
