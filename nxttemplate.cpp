@@ -21,6 +21,10 @@ using namespace ecrobot;
 #define FOLLOW 2
 #define STOP  3
 
+#define STRAIGHT   0 
+#define LEFT_TURN  1
+#define TURNED	   2
+
 #define MAIN_WAIT 200
 
 //Flags for when multiple sensors
@@ -33,12 +37,17 @@ extern "C"
 #include "kernel_id.h"
 #include "ecrobot_interface.h"
 
-
-void dispatcher();
+//Find line state machine
+void dispatcherFindLine();
+int straightFindLine();
+int leftTurnFindLine();
+//General state machine
+void dispatcherMain();
 int begin();
 int findLine();
 int follow();
 int stop();
+//IO functions
 int getLight(int light);
 int getSonar();
 int getTouch();
@@ -118,8 +127,81 @@ void setMotor(int motor, int PWM){
 }
 ///////////////////////////////////////////////////////////////////////	
 
-////////////////////States/////////////////////////////////////////////
+////////////////////STATE MACHINES/////////////////////////////////////
 
+////////////////////FIND LINE STATE MACHINE////////////////////////////
+/*Function: straightFindLine()
+* Go straight till find line
+*
+* Returns:
+*	int - next state
+*/
+int straightFindLine(){
+	int leftLightIn, rightLightIn;
+	
+	do{
+		//Go forward till find the line
+		setMotor(LEFT, 20);
+		setMotor(RIGHT, 20);
+
+		//Get light sensor values
+		leftLightIn = getLight(LEFT);
+		rightLightIn = getLight(RIGHT);
+	}while (rightLightIn>500 || leftLightIn > 500);
+
+
+	//Return and go to next state
+	return LEFT_TURN;
+}
+
+/*Function: leftTurnFindLine()
+* Turn left onto line
+*
+* Returns:
+*	int - next state
+*/
+int leftTurnFindLine(){
+	int leftLightIn, rightLightIn;
+	int i = 0;
+	do{
+		//Go forward till find the line
+		setMotor(LEFT, 0);
+		setMotor(RIGHT, 20);
+
+		//Get light sensor values
+		leftLightIn = getLight(LEFT);
+		rightLightIn = getLight(RIGHT);
+
+		// Wait some time between iterations
+		clock.wait(MAIN_WAIT);
+
+	}while (i++<15);
+
+	//Return and go to next state
+	return TURNED;
+}
+
+/*Function: dispatcherFindLine()
+* In control of find line state machine - Dispatches calls 
+* to other functions based on current state
+*/
+void dispatcherFindLine(){
+	int state = STRAIGHT;
+	while(state!=TURNED){	
+		//Switch between states
+		switch(state){
+			//Initial state
+			case STRAIGHT:
+				state = straightFindLine();
+				break;
+			//Locate the line
+			case LEFT_TURN:
+				state = leftTurnFindLine();
+				break;
+		}
+	}
+}
+/////////////////////////////HIGH LEVEL STATE MACHINE///////////////////////////////
 /*Function: begin()
 * Intial state of state machine
 *
@@ -148,18 +230,8 @@ int begin(){
 *	int - next state
 */
 int findLine(){
-	int leftLightIn, rightLightIn;
-	do{
-		//Go forward till find the line
-		if (1){
-			setMotor(LEFT, 20);
-			setMotor(RIGHT, 20);
-		}
-
-		//Get light sensor values
-		leftLightIn = getLight(LEFT);
-		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn>500 || leftLightIn > 500);
+	//Dispatcher
+	dispatcherFindLine();
 
 	//Return and go to next state
 	return STOP;
@@ -172,8 +244,8 @@ int findLine(){
 *	
 */
 int follow(){
-	setMotor(LEFT, 0);
-	setMotor(RIGHT, 0);
+	setMotor(LEFT, 10);
+	setMotor(RIGHT, 10);
 
 	return FOLLOW;
 }
@@ -195,21 +267,12 @@ int stop(){
 	//When pressed, return to following line
 	return FOLLOW;
 }
-///////////////////////////////////////////////////////////////////////
-/*Function: user_1ms_isr_type2()
-* nxtOSEK hook to be invoked from an ISR in 
-* category 2
-*/
-void user_1ms_isr_type2()
-{
-	SleeperMonitor(); // needed for I2C device and Clock classes
-}
 
 /*Function: dispatcher()
 * In control of state machine - Dispatches calls 
 * to other functions based on current state
 */
-void dispatcher(){
+void dispatcherMain(){
 	//Holds current state
 	int state = START;
 
@@ -254,10 +317,16 @@ void dispatcher(){
 		
 		// Wait some time between iterations
 		clock.wait(MAIN_WAIT);
-
-		// Wait some time between iterations
-		clock.wait(MAIN_WAIT);
 	}
+}
+///////////////////////////////////////////////////////////////////////
+/*Function: user_1ms_isr_type2()
+* nxtOSEK hook to be invoked from an ISR in 
+* category 2
+*/
+void user_1ms_isr_type2()
+{
+	SleeperMonitor(); // needed for I2C device and Clock classes
 }
 
 /*Function: main()
@@ -268,7 +337,7 @@ TASK(TaskMain)
 	// Endless loop
 	while(1){
 		//Call dispatcher
-		dispatcher();
+		dispatcherMain();
 	}
 } // End Task
 
