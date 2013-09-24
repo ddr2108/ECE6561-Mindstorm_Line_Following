@@ -17,13 +17,9 @@ using namespace ecrobot;
 
 #define CENTER 60
 #define FULLSPEED -100
-
-// Follow After Stop State Machine
-#define LEFT_FOLLOW_AFTER_STOP  0
-#define RIGHT_FOLLOW_AFTER_STOP 1
-#define STRAIGHT_FOLLOW_AFTER_STOP 2
-#define STOP_FOLLOW_AFTER_STOP  3
-// Follow State Machine
+#define SPEED1 40
+#define SPEED2 40
+// Follow State Machines
 #define LEFT_FOLLOW  0
 #define RIGHT_FOLLOW 1
 #define STRAIGHT_FOLLOW 2
@@ -36,8 +32,10 @@ using namespace ecrobot;
 #define START  0
 #define FIND_LINE 1
 #define FOLLOW 2
-#define STOP  3
-#define FOLLOW_AFTER_STOP 4
+#define FOLLOW_BEFORE_STOP1 3
+#define FOLLOW_BEFORE_STOP2 4
+#define STOP  5
+#define FOLLOW_AFTER_STOP 6
 
 //Flags for Colors
 #define WHITE 0
@@ -59,28 +57,32 @@ extern "C"
 #include "ecrobot_interface.h"
 
 //Follow after stop state machine
-void dispatcherFollowAfterStop();
-int straightFollowAfterStop();
-int leftFollowAfterStop();
-int rightFollowAfterStop();
-int stopFollowAfterStop();
+int dispatcherFollowBeforeStop1();
+int dispatcherFollowAfterStop();
+int straightFollowWaypoint();
+int leftFollowWaypoint();
+int rightFollowWaypoint();
+int stopFollowWaypoint();
 //Follow state machine
-void dispatcherFollow();
-int straightFollow();
-int leftFollow();
-int rightFollow();
-int stopFollow();
+int dispatcherFollow();
+int dispatcherBeforeStop2();
+int straightFollowMain();
+int leftFollowMain();
+int rightFollowMain();
+int stopFollowMain();
 //Find line state machine
-void dispatcherFindLine();
+int dispatcherFindLine();
 int straightFindLine();
 int leftTurnFindLine();
 //General state machine
-void dispatcherMain();
+int dispatcherMain();
 int begin();
 int findLine();
 int follow();
-int followAfterStop();
+int followBeforeStop1();
+int followBeforeStop2();
 int stop();
+int followAfterStop();
 
 //IO functions
 int getLight(int light);
@@ -105,6 +107,8 @@ Clock clock;
 // Initialize LCD
 Lcd lcd;		
 
+int currentState = START;
+
 int maxCount = 100;
 
 ///////////////////////////////////////////////////////////////////////
@@ -123,17 +127,21 @@ int maxCount = 100;
 int getLight(int light){
 	int brightness = 0;
 
-	//Get data from light sesnor
-	if (light==LEFT){
-		brightness = leftLight.getBrightness();
-	}else if (light==RIGHT){
-		brightness = rightLight.getBrightness();
-	}
+	//Average values from sensor
+	//for (int i = 0; i<2; i++){
+		//Get data from light sesnor
+		if (light==LEFT){
+			brightness += leftLight.getBrightness();
+		}else if (light==RIGHT){
+			brightness += rightLight.getBrightness();
+		}
+	//}
+	//brightness/=2;
 
 	//Based on brightness, return color
-	if (brightness>520){
+	if (brightness>550){
 		return WHITE;
-	}else if (brightness<450){
+	}else if (brightness<=450){
 		return BLACK;
 	}else{
 		return GRAY;
@@ -181,122 +189,328 @@ void setMotor(int motor, int PWM){
 ////////////////////STATE MACHINES/////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////
 
-////////////////////FOLLOW AFTER STOP STATE MACHINE////////////////////
+//////FOLLOW BEFORE STOP 1, FOLLOW AFTER STOP STATE MACHINE///////////
 
-/*Function: straightFollowAfterStop()
+/*Function: straightFollowWaypoint()
 * Go straight for following
 *
 * Returns:
 *	int - next state
 */
-int straightFollowAfterStop(){
+int straightFollowWaypoint(){
 	int leftLightIn, rightLightIn;	//Sensor Input
-	Clock time;						//Time
 
-	time.reset();	//Initialize clock 
-	do{
-		//Follow
-		setMotor(LEFT, 40);
-		setMotor(RIGHT, 40);
+	//Follow
+	setMotor(LEFT, SPEED2);
+	setMotor(RIGHT, SPEED2);
 
-		//Get light sensor values
-		leftLightIn = getLight(LEFT);
-		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn!=WHITE && leftLightIn!=WHITE && time.now() <= FAS_TIMEOUT);
-	
-	//If timed out, just stop following
-	if (time.now() >= FAS_TIMEOUT){
-		return STOP_FOLLOW_AFTER_STOP;
-	}
+	//Get light sensor values
+	leftLightIn = getLight(LEFT);
+	rightLightIn = getLight(RIGHT);
 
 	//Change direction based on the lights
-	if (leftLightIn==WHITE){
-		return RIGHT_FOLLOW_AFTER_STOP;
-	}else if (rightLightIn==WHITE){
-		return LEFT_FOLLOW_AFTER_STOP;
+	if (rightLightIn==WHITE && leftLightIn==WHITE){
+		return STRAIGHT_FOLLOW;
+	}else if (leftLightIn==BLACK && rightLightIn==BLACK){
+		return LEFT_FOLLOW;
+	}else if (rightLightIn==BLACK){
+		return RIGHT_FOLLOW;
+	}else if (leftLightIn==BLACK){
+		return LEFT_FOLLOW;
 	}
 
-	return STOP_FOLLOW_AFTER_STOP;
+	return STRAIGHT_FOLLOW;
 }
 
-/*Function: leftFollowAfterStop()
+/*Function: leftFollowWaypoint()
 * Go left for following
 *
 * Returns:
 *	int - next state
 */
-int leftFollowAfterStop(){
+int leftFollowWaypoint(){
 	int leftLightIn, rightLightIn;	//Sensor Input
-	Clock time;						//Time
 
-	time.reset();	//Initialize clock 
-	do{
-		//Follow
-		setMotor(LEFT, 0);
-		setMotor(RIGHT, 30);
+	//Follow
+	setMotor(LEFT, 0);
+	setMotor(RIGHT, SPEED1);
 
-		//Get light sensor values
-		leftLightIn = getLight(LEFT);
-		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn==WHITE && leftLightIn!=WHITE && time.now() <= FAS_TIMEOUT);
-
-	//If timed out, just stop following
-	if (time.now() >= FAS_TIMEOUT){
-		return STOP_FOLLOW_AFTER_STOP;
-	}
+	//Get light sensor values
+	leftLightIn = getLight(LEFT);
+	rightLightIn = getLight(RIGHT);
 
 	//Change direction based on the lights
-	if (leftLightIn!=WHITE && rightLightIn!=WHITE){
-		return STRAIGHT_FOLLOW_AFTER_STOP;
-	}else if (leftLightIn==WHITE){
-		return RIGHT_FOLLOW_AFTER_STOP;
+	if (rightLightIn==WHITE && leftLightIn==BLACK){
+		return LEFT_FOLLOW;
+	}else if (leftLightIn==BLACK && rightLightIn==BLACK){
+		return LEFT_FOLLOW;
+	}else if (leftLightIn==WHITE && rightLightIn==WHITE){
+		return STRAIGHT_FOLLOW;
+	}else if (rightLightIn==BLACK){
+		return RIGHT_FOLLOW;
 	}
 
-	return STOP_FOLLOW_AFTER_STOP;
+	return LEFT_FOLLOW;
 }
 
-/*Function: rightFollowAfterStop()
+/*Function: rightFollowWaypoint()
 * Go right for following
 *
 * Returns:
 *	int - next state
 */
-int rightFollowAfterStop(){
+int rightFollowWaypoint(){
 	int leftLightIn, rightLightIn;	//Sensor Input
-	Clock time;						//Time
-
-	time.reset();	//Initialize clock 
-	do{
-		//Follow
-		setMotor(LEFT, 30);
-		setMotor(RIGHT, 0);
-
-		//Get light sensor values
-		leftLightIn = getLight(LEFT);
-		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn!=WHITE && leftLightIn==WHITE && time.now() <= FAS_TIMEOUT);
 	
-	//If timed out, just stop following
-	if (time.now() >= FAS_TIMEOUT){
-		return STOP_FOLLOW_AFTER_STOP;
+	//Follow
+	setMotor(LEFT, SPEED1);
+	setMotor(RIGHT, 0);
+
+	//Get light sensor values
+	leftLightIn = getLight(LEFT);
+	rightLightIn = getLight(RIGHT);
+	
+	if (rightLightIn==BLACK && leftLightIn==WHITE){
+		return RIGHT_FOLLOW;
+	}else if (leftLightIn==BLACK && rightLightIn==BLACK){
+		return LEFT_FOLLOW;
+	}else if (leftLightIn==WHITE && rightLightIn==WHITE){
+		return STRAIGHT_FOLLOW;
+	}else if (leftLightIn==BLACK){
+		return LEFT_FOLLOW;
 	}
 
-	//Change direction based on the lights
-	if (leftLightIn!=WHITE && rightLightIn!=WHITE){
-		return STRAIGHT_FOLLOW_AFTER_STOP;
-	}else if (rightLightIn==WHITE){
-		return LEFT_FOLLOW_AFTER_STOP;
-	}
-
-	return STOP_FOLLOW_AFTER_STOP;
+	return RIGHT_FOLLOW;
 }
 
 /*Function: dispatcherFollowAfterStop()
 * In control of follow Aafter stop state machine - Dispatches calls 
 * to other functions based on current state
+*
+* Returns:
+*	int - last state
 */
-void dispatcherFollowAfterStop(){
+int dispatcherFollowBeforeStop1(){
 	//States
+	int state = STRAIGHT_FOLLOW;
+	//Clock
+	Clock time;
+
+	time.reset();	//Initialize clock 
+	while(time.now() <= FAS_TIMEOUT){	
+
+		//Switch between states
+		switch(state){
+			//Initial state
+			case STRAIGHT_FOLLOW:
+				state = straightFollowWaypoint();
+				break;
+			//Locate the line
+			case LEFT_FOLLOW:
+				state = leftFollowWaypoint();
+				break;
+				//Locate the line
+			case RIGHT_FOLLOW:
+				state = rightFollowWaypoint();
+				break;
+		}
+
+		// Wait some time between iterations
+		clock.wait(MAIN_WAIT);
+	}
+
+	return state;
+}
+
+/*Function: dispatcherFollowAfterStop()
+* In control of follow Aafter stop state machine - Dispatches calls 
+* to other functions based on current state
+*
+* Returns:
+*	int - last state
+*/
+int dispatcherFollowAfterStop(){
+	//States
+	int state = STRAIGHT_FOLLOW;
+	//Clock
+	Clock time;
+
+	time.reset();	//Initialize clock 
+	while(time.now() <= FAS_TIMEOUT){	
+
+		//Switch between states
+		switch(state){
+			//Initial state
+			case STRAIGHT_FOLLOW:
+				state = straightFollowWaypoint();
+				break;
+			//Locate the line
+			case LEFT_FOLLOW:
+				state = leftFollowWaypoint();
+				break;
+				//Locate the line
+			case RIGHT_FOLLOW:
+				state = rightFollowWaypoint();
+				break;
+		}
+
+		// Wait some time between iterations
+		clock.wait(MAIN_WAIT);
+	}
+
+	return state;
+}
+
+///////////////////////////////////////////////////////////////////////
+
+/////////////FOLLOW/FOLLOW BEFORE STOP 2 STATE MACHINE/////////////////
+
+/*Function: straightFollowMain()
+* Go straight for following
+*
+* Returns:
+*	int - next state
+*/
+int straightFollowMain(){
+	int leftLightIn, rightLightIn;
+	
+	//Follow
+	setMotor(LEFT, SPEED2);
+	setMotor(RIGHT, SPEED2);
+
+	//Get light sensor values
+	leftLightIn = getLight(LEFT);
+	rightLightIn = getLight(RIGHT);
+
+	//Change direction based on the lights
+	if (rightLightIn==WHITE && leftLightIn==WHITE){
+		return STRAIGHT_FOLLOW;
+	}else if (leftLightIn==GRAY && rightLightIn==GRAY){
+		return STOP_FOLLOW;
+	}else if (leftLightIn!=WHITE && rightLightIn!=WHITE){
+		return LEFT_FOLLOW;
+	}else if (rightLightIn!=WHITE){
+		return RIGHT_FOLLOW;
+	}else if (leftLightIn!=WHITE){
+		return LEFT_FOLLOW;
+	}
+
+	return STRAIGHT_FOLLOW;
+}
+
+/*Function: leftFollowMain()
+* Go left for following
+*
+* Returns:
+*	int - next state
+*/
+int leftFollowMain(){
+	int leftLightIn, rightLightIn;
+	
+	//Follow
+	setMotor(LEFT, 0);
+	setMotor(RIGHT, SPEED1);
+
+	//Get light sensor values
+	leftLightIn = getLight(LEFT);
+	rightLightIn = getLight(RIGHT);
+
+	//Change direction based on the lights
+	if (rightLightIn==WHITE && leftLightIn!=WHITE){
+		return LEFT_FOLLOW;
+	} else if (leftLightIn==GRAY && rightLightIn==GRAY){
+		return STOP_FOLLOW;
+	}else if (leftLightIn!=WHITE && rightLightIn!=WHITE){
+		return LEFT_FOLLOW;
+	}else if (leftLightIn==WHITE && rightLightIn==WHITE){
+		return STRAIGHT_FOLLOW;
+	}else if (rightLightIn!=WHITE){
+		return RIGHT_FOLLOW;
+	}
+
+	return LEFT_FOLLOW;
+}
+
+/*Function: rightFollowMain()
+* Go right for following
+*
+* Returns:
+*	int - next state
+*/
+int rightFollowMain(){
+	int leftLightIn, rightLightIn;
+	
+	//Follow
+	setMotor(LEFT, SPEED1);
+	setMotor(RIGHT, 0);
+
+	//Get light sensor values
+	leftLightIn = getLight(LEFT);
+	rightLightIn = getLight(RIGHT);
+
+	//Change direction based on the lights
+	if (rightLightIn!=WHITE && leftLightIn==WHITE){
+		return RIGHT_FOLLOW;
+	}else if (leftLightIn==GRAY && rightLightIn==GRAY){
+		return STOP_FOLLOW;
+	}else if (leftLightIn!=WHITE && rightLightIn!=WHITE){
+		return LEFT_FOLLOW;
+	}else if (leftLightIn==WHITE && rightLightIn==WHITE){
+		return STRAIGHT_FOLLOW;
+	}else if (leftLightIn!=WHITE){
+		return LEFT_FOLLOW;
+	}
+
+	return RIGHT_FOLLOW;
+}
+
+/*Function: dispatcherFollow()
+* In control of follow state machine - Dispatches calls 
+* to other functions based on current state
+*
+* Returns:
+*	int - last state
+*/
+int dispatcherFollow(){
+	int state = STRAIGHT_FOLLOW;
+	
+	while(1){	
+
+		//Switch between states
+		switch(state){
+			//Initial state
+			case STRAIGHT_FOLLOW:
+				state = straightFollowMain();
+				break;
+			//Locate the line
+			case LEFT_FOLLOW:
+				state = leftFollowMain();
+				break;
+				//Locate the line
+			case RIGHT_FOLLOW:
+				state = rightFollowMain();
+				break;
+			case STOP_FOLLOW:
+				return state;;
+				break;
+
+		}
+
+		// Wait some time between iterations
+		clock.wait(MAIN_WAIT);
+	}
+
+	return state;
+}
+
+/*Function: dispatcherFollowBeforeStop2()
+* In control of follow state machine - Dispatches calls 
+* to other functions based on current state
+*
+* Returns:
+*	int - last state
+*/
+int dispatcherFollowBeforeStop2(){
 	int state = STRAIGHT_FOLLOW;
 	//Clock
 	Clock time;
@@ -306,148 +520,19 @@ void dispatcherFollowAfterStop(){
 		//Switch between states
 		switch(state){
 			//Initial state
-			case STRAIGHT_FOLLOW_AFTER_STOP:
-				state = straightFollowAfterStop();
-				break;
-			//Locate the line
-			case LEFT_FOLLOW_AFTER_STOP:
-				state = leftFollowAfterStop();
-				break;
-				//Locate the line
-			case RIGHT_FOLLOW_AFTER_STOP:
-				state = rightFollowAfterStop();
-				break;
-			case STOP_FOLLOW_AFTER_STOP:
-				return;
-				break;
-		}
-
-		// Wait some time between iterations
-		clock.wait(MAIN_WAIT);
-	}
-}
-
-///////////////////////////////////////////////////////////////////////
-
-////////////////////FOLLOW STATE MACHINE///////////////////////////////
-
-/*Function: straightFollow()
-* Go straight for following
-*
-* Returns:
-*	int - next state
-*/
-int straightFollow(){
-	int leftLightIn, rightLightIn;
-	
-	do{
-		//Follow
-		setMotor(LEFT, 40);
-		setMotor(RIGHT, 40);
-
-		//Get light sensor values
-		leftLightIn = getLight(LEFT);
-		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn!=WHITE && leftLightIn!=WHITE);
-
-	//Change direction based on the lights
-	if (leftLightIn==GRAY && rightLightIn==GRAY){
-		return STOP_FOLLOW;
-	}else if (leftLightIn==WHITE){
-		return RIGHT_FOLLOW;
-	}else if (rightLightIn==WHITE){
-		return LEFT_FOLLOW;
-	}
-
-	return STOP_FOLLOW;
-}
-
-/*Function: leftFollow()
-* Go left for following
-*
-* Returns:
-*	int - next state
-*/
-int leftFollow(){
-	int leftLightIn, rightLightIn;
-	
-	do{
-		//Follow
-		setMotor(LEFT, 0);
-		setMotor(RIGHT, 30);
-
-		//Get light sensor values
-		leftLightIn = getLight(LEFT);
-		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn==WHITE && leftLightIn!=WHITE);
-
-	//Change direction based on the lights
-	if (leftLightIn==GRAY && rightLightIn==GRAY){
-		return STOP_FOLLOW;
-	}else if (leftLightIn!=WHITE && rightLightIn!=WHITE){
-		return STRAIGHT_FOLLOW;
-	}else if (leftLightIn==WHITE){
-		return RIGHT_FOLLOW;
-	}
-
-	return STOP_FOLLOW;
-}
-
-/*Function: rightFollow()
-* Go right for following
-*
-* Returns:
-*	int - next state
-*/
-int rightFollow(){
-	int leftLightIn, rightLightIn;
-	
-	do{
-		//Follow
-		setMotor(LEFT, 30);
-		setMotor(RIGHT, 0);
-
-		//Get light sensor values
-		leftLightIn = getLight(LEFT);
-		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn!=WHITE && leftLightIn==WHITE);
-
-	//Change direction based on the lights
-	if (leftLightIn==GRAY && rightLightIn==GRAY){
-		return STOP_FOLLOW;
-	}else if (leftLightIn!=WHITE && rightLightIn!=WHITE){
-		return STRAIGHT_FOLLOW;
-	}else if (rightLightIn==WHITE){
-		return LEFT_FOLLOW;
-	}
-
-	return STOP_FOLLOW;
-}
-
-/*Function: dispatcherFollow()
-* In control of follow state machine - Dispatches calls 
-* to other functions based on current state
-*/
-void dispatcherFollow(){
-	int state = STRAIGHT_FOLLOW;
-	
-	while(1){	
-		//Switch between states
-		switch(state){
-			//Initial state
 			case STRAIGHT_FOLLOW:
-				state = straightFollow();
+				state = straightFollowMain();
 				break;
 			//Locate the line
 			case LEFT_FOLLOW:
-				state = leftFollow();
+				state = leftFollowMain();
 				break;
 				//Locate the line
 			case RIGHT_FOLLOW:
-				state = rightFollow();
+				state = rightFollowMain();
 				break;
 			case STOP_FOLLOW:
-				return;
+				return state;
 				break;
 
 		}
@@ -455,8 +540,10 @@ void dispatcherFollow(){
 		// Wait some time between iterations
 		clock.wait(MAIN_WAIT);
 	}
-}
 
+	return state;
+
+}
 ///////////////////////////////////////////////////////////////////////
 
 ////////////////////FIND LINE STATE MACHINE////////////////////////////
@@ -472,8 +559,8 @@ int straightFindLine(){
 	
 	do{
 		//Go forward till find the line
-		setMotor(LEFT, 40);
-		setMotor(RIGHT, 40);
+		setMotor(LEFT, SPEED2);
+		setMotor(RIGHT, SPEED2);
 
 		//Get light sensor values
 		leftLightIn = getLight(LEFT);
@@ -494,19 +581,17 @@ int straightFindLine(){
 int leftTurnFindLine(){
 	int leftLightIn, rightLightIn;
 	int i = 0;
-	do{
-		//Go forward till find the line
-		setMotor(LEFT, 0);
-		setMotor(RIGHT, 30);
+	
+	//Go forward till find the line
+	setMotor(LEFT, 0);
+	setMotor(RIGHT, SPEED1);
 
-		//Get light sensor values
-		leftLightIn = getLight(LEFT);
-		rightLightIn = getLight(RIGHT);
+	//Get light sensor values
+	leftLightIn = getLight(LEFT);
+	rightLightIn = getLight(RIGHT);
 
-		// Wait some time between iterations
-		clock.wait(MAIN_WAIT);
-
-	}while (i++<10);
+	// Wait some time between iterations
+	clock.wait(MAIN_WAIT);
 
 	//Return and go to next state
 	return TURNED;
@@ -515,14 +600,19 @@ int leftTurnFindLine(){
 /*Function: dispatcherFindLine()
 * In control of find line state machine - Dispatches calls 
 * to other functions based on current state
+*
+* Returns:
+*	int - last state
 */
-void dispatcherFindLine(){
+int dispatcherFindLine(){
 	int state = STRAIGHT;
 	while(1){	
+
 		//Switch between states
 		switch(state){
 			//Initial state
 			case STRAIGHT:
+				//lcd.putf("sn",   "STRAIGHT FIND LINE");
 				state = straightFindLine();
 				break;
 			//Locate the line
@@ -530,13 +620,15 @@ void dispatcherFindLine(){
 				state = leftTurnFindLine();
 				break;
 			case TURNED:
-				return;
+				return state;;
 				break;
 		}
 
 		// Wait some time between iterations
 		clock.wait(MAIN_WAIT);
 	}
+
+	return state;
 }
 
 /////////////////////////////HIGH LEVEL STATE MACHINE///////////////////////////////
@@ -549,6 +641,9 @@ void dispatcherFindLine(){
 */
 int begin(){
 	int leftLightIn, rightLightIn;
+
+	// Initial wait
+	clock.wait(MAIN_WAIT*3);
 
 	//Get light sensor values
 	leftLightIn = getLight(LEFT);
@@ -587,7 +682,40 @@ int follow(){
 	//Dispatcher
 	dispatcherFollow();
 
-	return STOP;
+	return FOLLOW_BEFORE_STOP1;
+}
+
+/*Function: followAfterStop()
+* Function for following the line after a stop
+*
+* Parameters:
+*	
+*/
+int followBeforeStop1(){
+	//Dispatcher
+	dispatcherFollowBeforeStop1();
+
+	return FOLLOW_BEFORE_STOP2;
+}
+
+/*Function: followAfterStop()
+* Function for following the line after a stop
+*
+* Parameters:
+*	
+*/
+int followBeforeStop2(){
+	int state; 
+
+	//Dispatcher
+	state = dispatcherFollowBeforeStop2();
+
+	//IF there is a time out, just go back to regular following
+	if (state == STOP_FOLLOW){
+		return STOP;
+	} else{
+		return FOLLOW;
+	}
 }
 
 /*Function: stop()
@@ -601,7 +729,7 @@ int stop(){
 	while(getTouch()==0){
 		//Spin around in circles
 		setMotor(LEFT, 0);
-		setMotor(RIGHT, 50);
+		setMotor(RIGHT, SPEED1);
 	}
 
 	//When pressed, return to following line
@@ -624,8 +752,11 @@ int followAfterStop(){
 /*Function: dispatcher()
 * In control of state machine - Dispatches calls 
 * to other functions based on current state
+*
+* Returns:
+*	int - last state
 */
-void dispatcherMain(){
+int dispatcherMain(){
 	//Holds current state
 	int state = START;
 
@@ -652,6 +783,18 @@ void dispatcherMain(){
 				lcd.disp(); 
 				state = follow();
 				break;
+			//Follow the line
+			case FOLLOW_BEFORE_STOP1:
+				lcd.putf("sn",   "FOLLOW BEFORE 1");
+				lcd.disp(); 
+				state = followBeforeStop1();
+				break;
+				//Follow the line
+			case FOLLOW_BEFORE_STOP2:
+				lcd.putf("sn",   "FOLLOW BEFORE 2");
+				lcd.disp(); 
+				state = followBeforeStop2();
+				break;
 			//Stop when come to points
 			case STOP:
 				lcd.putf("sn",   "STOP");
@@ -666,6 +809,8 @@ void dispatcherMain(){
 				break;
 		}		
 		
+		//update current state
+		currentState = state;
 		// Wait some time between iterations
 		clock.wait(MAIN_WAIT);
 	}
