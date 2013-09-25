@@ -48,13 +48,21 @@ using namespace ecrobot;
 
 //Timing parameters
 #define MAIN_WAIT 200
-#define FAS_TIMEOUT 2000
+#define FAS_TIMEOUT 1000
+
+//Transfer parameters
+#define NXT_UDL_PKTHDRLEN (4)
+#define NXT_UDL_GETRECORD (0xff)
+#define NXT_UDL_GETHEADER (0xf0)
+#define NXT_UDL_ERROR (0xaa)
+#define NXT_UDL_CLOSECONN (0x00)
 
 extern "C" 
 {
 #include "kernel.h"
 #include "kernel_id.h"
 #include "ecrobot_interface.h"
+#include <string.h>
 
 //Follow after stop state machine
 int dispatcherFollowBeforeStop1();
@@ -128,20 +136,20 @@ int getLight(int light){
 	int brightness = 0;
 
 	//Average values from sensor
-	//for (int i = 0; i<2; i++){
+	for (int i = 0; i<5; i++){
 		//Get data from light sesnor
 		if (light==LEFT){
 			brightness += leftLight.getBrightness();
 		}else if (light==RIGHT){
 			brightness += rightLight.getBrightness();
 		}
-	//}
-	//brightness/=2;
+	}
+	brightness/=5;
 
 	//Based on brightness, return color
-	if (brightness>550){
+	if (brightness>530){
 		return WHITE;
-	}else if (brightness<=450){
+	}else if (brightness<=400){
 		return BLACK;
 	}else{
 		return GRAY;
@@ -565,7 +573,7 @@ int straightFindLine(){
 		//Get light sensor values
 		leftLightIn = getLight(LEFT);
 		rightLightIn = getLight(RIGHT);
-	}while (rightLightIn==WHITE || leftLightIn==WHITE);
+	}while (rightLightIn!=BLACK|| leftLightIn!=BLACK);
 
 
 	//Return and go to next state
@@ -650,7 +658,7 @@ int begin(){
 	rightLightIn = getLight(RIGHT);
 
 	//If in white space, try to find line
-	if (leftLightIn==WHITE && rightLightIn==WHITE){
+	if (leftLightIn!=BLACK && rightLightIn!=BLACK){
 		return FIND_LINE;
 	}
 
@@ -818,12 +826,143 @@ int dispatcherMain(){
 
 ///////////////////////////////////////////////////////////////////////
 
+//////////////////////////LOGGING///////////////////////////////////////////
+/* OSEK declarations */
+DeclareTask(Task_ts1);
+DeclareTask(Task_sampler);
+DeclareResource(USB_Rx);
+DeclareCounter(SysTimerCnt);
+
 /*Function: user_1ms_isr_type2()
 * nxtOSEK hook to be invoked from an ISR in 
 * category 2
 */
 void user_1ms_isr_type2(){
+	/* Increment System Timer Count to activate periodical Tasks */
+	(void)SignalCounter(SysTimerCnt);
+
 	SleeperMonitor(); // needed for I2C device and Clock classes
+}
+
+/* ECRobot hooks */
+void ecrobot_device_initialize()
+{
+	ecrobot_init_usb(); /* init USB */
+}
+
+void ecrobot_device_terminate()
+{
+	ecrobot_term_usb(); /* terminate USB */
+}
+
+/* 1msec periodical Task */
+TASK(Task_ts1)
+{
+	GetResource(USB_Rx);
+	ecrobot_process1ms_usb(); /* USB process handler (must be invoked every 1msec) */
+	ReleaseResource(USB_Rx);
+
+	TerminateTask();
+}
+
+void udl_loop(short *recordsp, int record_size, int record_count);
+short* sampler_func(unsigned int *record_sizep, unsigned int *record_countp);
+
+/* Main Task */
+TASK(Task_sampler)
+{
+	short *recordsp;
+	unsigned int record_size, record_count;
+		
+	recordsp = sampler_func(&record_size, &record_count);
+	udl_loop(recordsp, record_size, record_count);
+}
+
+short* sampler_func(unsigned int *record_sizep, unsigned int *record_countp)
+{
+
+	short records[1*3];
+
+	//log the first sample
+	records[0] = 2;
+	records[1] = 8;
+	records[2] = 10;
+
+	*record_sizep = sizeof(short)*3;
+	*record_countp = 1;
+
+	return records;
+
+}
+
+void udl_loop(short *recordsp, int record_size, int record_count)
+{
+	unsigned char buffer[MAX_USB_DATA_LEN] __attribute__ ((aligned (sizeof(short)))) ;
+	int len;
+	
+	unsigned char command;
+	unsigned short index;
+		
+	while(1)
+	{		
+		GetResource(USB_Rx);
+		//read USB data
+		len = ecrobot_read_usb(buffer, 0, MAX_USB_DATA_LEN);
+		ReleaseResource(USB_Rx);
+		
+		if(len > 3)
+		{
+			command = buffer[0];
+			index = ((unsigned short*)buffer)[1];
+			
+			//if a valid command is sent, then buffer[0] remains the same
+			//i.e the command is echoed back
+			
+			switch(command)
+			{
+				case NXT_UDL_CLOSECONN:
+					//nothing needs to be changed
+					//just zero out other fields and send it back
+					//and close the connection
+					buffer[1] = 0;
+					((unsigned short*)buffer)[1] = 0;
+					ecrobot_send_usb(buffer, 0, NXT_UDL_PKTHDRLEN);
+					ecrobot_disconnect_usb();
+					break;
+					
+				case NXT_UDL_GETHEADER:
+				
+					buffer[1] = (unsigned char)record_size;
+					((unsigned short*)buffer)[1] 
+						= (unsigned short)record_count;
+					ecrobot_send_usb(buffer, 0, NXT_UDL_PKTHDRLEN);
+					
+					break;
+					
+				case NXT_UDL_GETRECORD:
+					if(index < record_count)
+					{
+						//the command and index will be echoed back
+						
+						buffer[1] = (unsigned char)record_size;
+						
+						memcpy(	&(buffer[NXT_UDL_PKTHDRLEN]), 
+								(recordsp+(index*record_size)),
+								record_size);
+								
+						ecrobot_send_usb(buffer, 0, 
+							(NXT_UDL_PKTHDRLEN+record_size));
+						
+						break;
+					}
+					
+				default:
+					buffer[0] = NXT_UDL_ERROR;
+					ecrobot_send_usb(buffer, 0, NXT_UDL_PKTHDRLEN);
+			}//switch
+			
+		}//if		
+	}//while	
 }
 
 /*Function: main()
