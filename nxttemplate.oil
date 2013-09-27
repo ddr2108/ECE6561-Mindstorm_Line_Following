@@ -28,7 +28,7 @@ CPU ATMEL_AT91SAM7S256
   TASK Task_ts1
   {
     AUTOSTART = FALSE;
-    PRIORITY = 2;
+    PRIORITY = 3;
     ACTIVATION = 1;
     SCHEDULE = FULL;
     RESOURCE = USB_Rx;
@@ -49,18 +49,29 @@ CPU ATMEL_AT91SAM7S256
     };
   };
 
-  /* Definition of Task_background */
+    /* Definitions of a periodical task: Task_sampler */
   TASK Task_sampler
   {
-    AUTOSTART = TRUE 
-  {
-      APPMODE = appmode1;
-    };
-    PRIORITY = 1;
+    AUTOSTART = FALSE;
+    PRIORITY = 2;
     ACTIVATION = 1;
     SCHEDULE = FULL;
     RESOURCE = USB_Rx;
-    STACKSIZE = 512; /* Stack size */ 
+    STACKSIZE = 512; /* bytes */
+  };
+  ALARM OSEK_Alarm_Task_sampler
+  {
+    COUNTER = SysTimerCnt;
+    ACTION = ACTIVATETASK
+    {
+      TASK = Task_sampler;
+    };
+    AUTOSTART = TRUE
+    {
+      APPMODE = appmode1;
+      ALARMTIME = 1;
+      CYCLETIME = 25;
+    };
   };
   
   /* Definition of OSEK Alarm counter: SysTimerCnt */

@@ -57,6 +57,11 @@ using namespace ecrobot;
 #define NXT_UDL_ERROR (0xaa)
 #define NXT_UDL_CLOSECONN (0x00)
 
+//Datalogging
+#define RECORD_SIZE (sizeof(short)*3)
+#define SAMPLE_COUNT 1000
+#define RECORD_COUNT SAMPLE_COUNT
+
 extern "C" 
 {
 #include "kernel.h"
@@ -64,6 +69,15 @@ extern "C"
 #include "ecrobot_interface.h"
 #include <string.h>
 
+// OSEK declarations
+DeclareTask(Task_ts1);
+DeclareTask(Task_sampler);
+DeclareResource(USB_Rx);
+DeclareCounter(SysTimerCnt);
+
+//Datalogging
+void udl_loop(void *recordsp, int record_size, int record_count);
+void sampler_func();
 //Follow after stop state machine
 int dispatcherFollowBeforeStop1();
 int dispatcherFollowAfterStop();
@@ -115,9 +129,10 @@ Clock clock;
 // Initialize LCD
 Lcd lcd;		
 
-int currentState = START;
+//Records
+short records[SAMPLE_COUNT*3];
+int sample = 0;
 
-int maxCount = 100;
 
 ///////////////////////////////////////////////////////////////////////
 ////////////////Interacting with IO////////////////////////////////////
@@ -620,7 +635,6 @@ int dispatcherFindLine(){
 		switch(state){
 			//Initial state
 			case STRAIGHT:
-				//lcd.putf("sn",   "STRAIGHT FIND LINE");
 				state = straightFindLine();
 				break;
 			//Locate the line
@@ -733,6 +747,7 @@ int followBeforeStop2(){
 *	int - next state
 */
 int stop(){
+	udl_loop(records, RECORD_SIZE, sample);
 	//Infinite loop while touch not pressed
 	while(getTouch()==0){
 		//Spin around in circles
@@ -776,7 +791,7 @@ int dispatcherMain(){
 			//Initial state
 			case START:
 				lcd.putf("sn",   "START");
-				lcd.disp();  
+				lcd.disp();
 				state = begin();
 				break;
 			//Locate the line
@@ -788,57 +803,51 @@ int dispatcherMain(){
 			//Follow the line
 			case FOLLOW:
 				lcd.putf("sn",   "FOLLOW");
-				lcd.disp(); 
+				lcd.disp();
 				state = follow();
 				break;
 			//Follow the line
 			case FOLLOW_BEFORE_STOP1:
 				lcd.putf("sn",   "FOLLOW BEFORE 1");
-				lcd.disp(); 
+				lcd.disp();
 				state = followBeforeStop1();
 				break;
 				//Follow the line
 			case FOLLOW_BEFORE_STOP2:
 				lcd.putf("sn",   "FOLLOW BEFORE 2");
-				lcd.disp(); 
+				lcd.disp();
 				state = followBeforeStop2();
 				break;
 			//Stop when come to points
 			case STOP:
 				lcd.putf("sn",   "STOP");
-				lcd.disp(); 
+				lcd.disp();
 				state = stop();
 				break;
 			//Stop when come to points
 			case FOLLOW_AFTER_STOP:
 				lcd.putf("sn",   "FOLLOW AFTER STOP");
-				lcd.disp(); 
+				lcd.disp();
 				state = followAfterStop();
 				break;
 		}		
 		
-		//update current state
-		currentState = state;
 		// Wait some time between iterations
 		clock.wait(MAIN_WAIT);
 	}
+
+	return state;
 }
 
 ///////////////////////////////////////////////////////////////////////
 
 //////////////////////////LOGGING///////////////////////////////////////////
-/* OSEK declarations */
-DeclareTask(Task_ts1);
-DeclareTask(Task_sampler);
-DeclareResource(USB_Rx);
-DeclareCounter(SysTimerCnt);
-
 /*Function: user_1ms_isr_type2()
 * nxtOSEK hook to be invoked from an ISR in 
 * category 2
 */
 void user_1ms_isr_type2(){
-	/* Increment System Timer Count to activate periodical Tasks */
+	// Increment System Timer Count to activate periodical Tasks
 	(void)SignalCounter(SysTimerCnt);
 
 	SleeperMonitor(); // needed for I2C device and Clock classes
@@ -847,55 +856,60 @@ void user_1ms_isr_type2(){
 /* ECRobot hooks */
 void ecrobot_device_initialize()
 {
-	ecrobot_init_usb(); /* init USB */
+	ecrobot_init_usb(); 	// init USB
 }
 
 void ecrobot_device_terminate()
 {
-	ecrobot_term_usb(); /* terminate USB */
+	ecrobot_term_usb(); 	// terminate USB
 }
 
-/* 1msec periodical Task */
-TASK(Task_ts1)
-{
+/*Function: Task_ts1()
+* USB Process Handler
+*/
+TASK(Task_ts1){
+	
+	//USB process handler
 	GetResource(USB_Rx);
-	ecrobot_process1ms_usb(); /* USB process handler (must be invoked every 1msec) */
+	ecrobot_process1ms_usb(); 
 	ReleaseResource(USB_Rx);
 
-	TerminateTask();
+	TerminateTask();		//Terminate task
 }
 
-void udl_loop(short *recordsp, int record_size, int record_count);
-short* sampler_func(unsigned int *record_sizep, unsigned int *record_countp);
 
-/* Main Task */
-TASK(Task_sampler)
-{
-	short *recordsp;
-	unsigned int record_size, record_count;
-		
-	recordsp = sampler_func(&record_size, &record_count);
-	udl_loop(recordsp, record_size, record_count);
+/*Function: Task_sampler()
+* Performs sampling in background
+*/
+TASK(Task_sampler){
+	sampler_func();		//Sample
+	TerminateTask();	//Terminate task
 }
 
-short* sampler_func(unsigned int *record_sizep, unsigned int *record_countp)
-{
+/*Function: sampler_func()
+* Actually records data
+*/
+void sampler_func(){
 
-	short records[1*3];
+	//log the sample
+	records[sample*3+0] = ecrobot_get_systick_ms();
+	records[sample*3+1] = leftMotor.getCount();
+	records[sample*3+2] = rightMotor.getCount();
 
-	//log the first sample
-	records[0] = 2;
-	records[1] = 8;
-	records[2] = 10;
-
-	*record_sizep = sizeof(short)*3;
-	*record_countp = 1;
-
-	return records;
-
+	//Increment number of samples
+	sample++;
+	sample = sample%1000;
 }
 
-void udl_loop(short *recordsp, int record_size, int record_count)
+/*Function: udl_loop()
+* Actually records data
+*
+* Parameters:
+*	void *recordsp   - buffer of data 
+*	int record_size  - size of data
+*	int record_count - number of data
+*/
+void udl_loop(void *recordsp, int record_size, int record_count)
 {
 	unsigned char buffer[MAX_USB_DATA_LEN] __attribute__ ((aligned (sizeof(short)))) ;
 	int len;
@@ -903,8 +917,8 @@ void udl_loop(short *recordsp, int record_size, int record_count)
 	unsigned char command;
 	unsigned short index;
 		
-	while(1)
-	{		
+	while(sample!=0){		
+		
 		GetResource(USB_Rx);
 		//read USB data
 		len = ecrobot_read_usb(buffer, 0, MAX_USB_DATA_LEN);
@@ -914,10 +928,7 @@ void udl_loop(short *recordsp, int record_size, int record_count)
 		{
 			command = buffer[0];
 			index = ((unsigned short*)buffer)[1];
-			
-			//if a valid command is sent, then buffer[0] remains the same
-			//i.e the command is echoed back
-			
+						
 			switch(command)
 			{
 				case NXT_UDL_CLOSECONN:
@@ -928,10 +939,13 @@ void udl_loop(short *recordsp, int record_size, int record_count)
 					((unsigned short*)buffer)[1] = 0;
 					ecrobot_send_usb(buffer, 0, NXT_UDL_PKTHDRLEN);
 					ecrobot_disconnect_usb();
+					
+					sample = 0;	//Reset sample counter
+					
 					break;
 					
 				case NXT_UDL_GETHEADER:
-				
+					//Send header
 					buffer[1] = (unsigned char)record_size;
 					((unsigned short*)buffer)[1] 
 						= (unsigned short)record_count;
@@ -940,6 +954,7 @@ void udl_loop(short *recordsp, int record_size, int record_count)
 					break;
 					
 				case NXT_UDL_GETRECORD:
+					//Send data
 					if(index < record_count)
 					{
 						//the command and index will be echoed back
@@ -947,23 +962,25 @@ void udl_loop(short *recordsp, int record_size, int record_count)
 						buffer[1] = (unsigned char)record_size;
 						
 						memcpy(	&(buffer[NXT_UDL_PKTHDRLEN]), 
-								(recordsp+(index*record_size)),
+								((short *)recordsp+(index*record_size)),
 								record_size);
 								
 						ecrobot_send_usb(buffer, 0, 
 							(NXT_UDL_PKTHDRLEN+record_size));
 						
+
 						break;
 					}
-					
+	
 				default:
 					buffer[0] = NXT_UDL_ERROR;
 					ecrobot_send_usb(buffer, 0, NXT_UDL_PKTHDRLEN);
-			}//switch
-			
-		}//if		
-	}//while	
+			}
+		}	
+	}	
 }
+
+///////////////////////////////////////////MAIN//////////////////////////////////////
 
 /*Function: main()
 * main loop
