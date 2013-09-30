@@ -1,7 +1,7 @@
 # Target specific macros
-TARGET = nxttemplate
-TARGET_CPP_SOURCES = nxttemplate.cpp
-TOPPERS_OSEK_OIL_SOURCE = ./nxttemplate.oil
+TARGET = nxtdemo
+TARGET_CPP_SOURCES = nxtdemo.cpp
+TOPPERS_OSEK_OIL_SOURCE = ./nxtdemo.oil
 
 O_PATH ?= build
 
